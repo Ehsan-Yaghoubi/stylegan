@@ -11,7 +11,8 @@
 # Paths.
 
 result_dir = 'results'
-data_dir = 'datasets'
+data_dir = '/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/RAP_TFRecord'
+#data_dir = '/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/cifar10-py/tfrecord_cifar10'
 cache_dir = 'cache'
 run_dir_ignore = ['results', 'datasets', 'cache']
 

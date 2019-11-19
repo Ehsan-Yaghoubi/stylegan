@@ -21,7 +21,7 @@ import PIL.Image
 import dnnlib.tflib as tflib
 
 from training import dataset
-
+import RAP_scripts
 #----------------------------------------------------------------------------
 
 def error(msg):
@@ -340,7 +340,7 @@ def create_cifar10(tfrecord_dir, cifar10_dir):
     images = np.concatenate(images)
     labels = np.concatenate(labels)
     assert images.shape == (50000, 3, 32, 32) and images.dtype == np.uint8
-    assert labels.shape == (50000,) and labels.dtype == np.int32
+    assert labels.shape == (50000,) and labels.dtype == np.int64
     assert np.min(images) == 0 and np.max(images) == 255
     assert np.min(labels) == 0 and np.max(labels) == 9
     onehot = np.zeros((labels.size, np.max(labels) + 1), dtype=np.float32)
@@ -373,6 +373,47 @@ def create_cifar100(tfrecord_dir, cifar100_dir):
         for idx in range(order.size):
             tfr.add_image(images[order[idx]])
         tfr.add_labels(onehot[order])
+
+#----------------------------------------------------------------------------
+
+def create_RAP(tfrecord_dir, RAP_dir):
+    print('Loading RAP from "%s"' % RAP_dir)
+    from RAP_scripts import rap_data_loading
+    from RAP_scripts import RAP_utils
+    import cv2
+
+    image_size = (128,128)
+    RAP_attributes_and_keypoints_dict = rap_data_loading.load_rap_dataset()
+
+    img_array_all = []
+    img_labels_all = []
+    for index, img_name in enumerate(RAP_attributes_and_keypoints_dict):
+        img_path = os.path.join(RAP_dir, img_name)
+        img_array = cv2.imread(img_path)
+        Squared_img_array = RAP_utils.resizeAndPad(img= img_array, size= image_size, padColor=0)
+        Squared_img_array = Squared_img_array.transpose([2, 0, 1]) # HWC => CHW
+        img_array_all.append(Squared_img_array)
+        #img_labels = RAP_attributes_and_keypoints_dict[img_name]['attrs']
+        #img_labels_all.append(img_labels)
+        if index % 10000 == 0:
+            print("Prepare labels and images:\t{}/{}".format(index,len(RAP_attributes_and_keypoints_dict)))
+
+    with TFRecordExporter(tfrecord_dir, expected_images= len(RAP_attributes_and_keypoints_dict)) as tfr:
+        order = tfr.choose_shuffled_order()
+        for idx in range(order.size):
+            tfr.add_image(img_array_all[idx])
+
+
+
+    # images = data['data'].reshape(-1, 3, 32, 32)
+    # labels = np.array(data['fine_labels'])
+    # assert images.shape == (50000, 3, 32, 32) and images.dtype == np.uint8
+    # assert labels.shape == (50000,) and labels.dtype == np.int32
+    # assert np.min(images) == 0 and np.max(images) == 255
+    # assert np.min(labels) == 0 and np.max(labels) == 99
+    # onehot = np.zeros((labels.size, np.max(labels) + 1), dtype=np.float32)
+    # onehot[np.arange(labels.size), labels] = 1.0
+
 
 #----------------------------------------------------------------------------
 
@@ -483,11 +524,11 @@ def create_lsun_wide(tfrecord_dir, lmdb_dir, width=512, height=384, max_images=N
 
 def create_celeba(tfrecord_dir, celeba_dir, cx=89, cy=121):
     print('Loading CelebA from "%s"' % celeba_dir)
-    glob_pattern = os.path.join(celeba_dir, 'img_align_celeba_png', '*.png')
+    glob_pattern = os.path.join(celeba_dir, '*.jpg')
     image_filenames = sorted(glob.glob(glob_pattern))
     expected_images = 202599
     if len(image_filenames) != expected_images:
-        error('Expected to find %d images' % expected_images)
+        error('Expected to find {} images, but found {} images'.format(expected_images, len(image_filenames)))
 
     with TFRecordExporter(tfrecord_dir, len(image_filenames)) as tfr:
         order = tfr.choose_shuffled_order()
@@ -556,45 +597,41 @@ def execute_cmdline(argv):
         epilog = 'Example: %s %s' % (prog, example) if example is not None else None
         return subparsers.add_parser(cmd, description=desc, help=desc, epilog=epilog)
 
-    p = add_command(    'display',          'Display images in dataset.',
-                                            'display datasets/mnist')
+    p = add_command(    'display',          'Display images in dataset.', 'display datasets/mnist')
     p.add_argument(     'tfrecord_dir',     help='Directory containing dataset')
 
-    p = add_command(    'extract',          'Extract images from dataset.',
-                                            'extract datasets/mnist mnist-images')
+    p = add_command(    'extract',          'Extract images from dataset.', 'extract datasets/mnist mnist-images')
     p.add_argument(     'tfrecord_dir',     help='Directory containing dataset')
     p.add_argument(     'output_dir',       help='Directory to extract the images into')
 
-    p = add_command(    'compare',          'Compare two datasets.',
-                                            'compare datasets/mydataset datasets/mnist')
+    p = add_command(    'compare',          'Compare two datasets.', 'compare datasets/mydataset datasets/mnist')
     p.add_argument(     'tfrecord_dir_a',   help='Directory containing first dataset')
     p.add_argument(     'tfrecord_dir_b',   help='Directory containing second dataset')
     p.add_argument(     '--ignore_labels',  help='Ignore labels (default: 0)', type=int, default=0)
 
-    p = add_command(    'create_mnist',     'Create dataset for MNIST.',
-                                            'create_mnist datasets/mnist ~/downloads/mnist')
+    p = add_command(    'create_mnist',     'Create dataset for MNIST.', 'create_mnist datasets/mnist ~/downloads/mnist')
     p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
     p.add_argument(     'mnist_dir',        help='Directory containing MNIST')
 
-    p = add_command(    'create_mnistrgb',  'Create dataset for MNIST-RGB.',
-                                            'create_mnistrgb datasets/mnistrgb ~/downloads/mnist')
+    p = add_command(    'create_mnistrgb',  'Create dataset for MNIST-RGB.', 'create_mnistrgb datasets/mnistrgb ~/downloads/mnist')
     p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
     p.add_argument(     'mnist_dir',        help='Directory containing MNIST')
     p.add_argument(     '--num_images',     help='Number of composite images to create (default: 1000000)', type=int, default=1000000)
     p.add_argument(     '--random_seed',    help='Random seed (default: 123)', type=int, default=123)
 
-    p = add_command(    'create_cifar10',   'Create dataset for CIFAR-10.',
-                                            'create_cifar10 datasets/cifar10 ~/downloads/cifar10')
-    p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
-    p.add_argument(     'cifar10_dir',      help='Directory containing CIFAR-10')
+    p = add_command(    'create_cifar10',   'Create dataset for CIFAR-10.', 'create_cifar10 datasets/cifar10 ~/downloads/cifar10')
+    p.add_argument(     'tfrecord_dir',     default="/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/",   help='New dataset directory to be created')
+    p.add_argument(     'cifar10_dir',      default="/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/" ,help='Directory containing CIFAR-10')
 
-    p = add_command(    'create_cifar100',  'Create dataset for CIFAR-100.',
-                                            'create_cifar100 datasets/cifar100 ~/downloads/cifar100')
+    p = add_command(    'RAP',   'Create dataset for RAP.', 'create_RAP datasets/RAP ~/downloads/RAP')
+    p.add_argument(     'tfrecord_dir',     default="/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/",   help='New dataset directory to be created')
+    p.add_argument(     'RAP_dir',      default="/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/" ,help='Directory containing RAP IMAGES')
+
+    p = add_command(    'create_cifar100',  'Create dataset for CIFAR-100.', 'create_cifar100 datasets/cifar100 ~/downloads/cifar100')
     p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
     p.add_argument(     'cifar100_dir',     help='Directory containing CIFAR-100')
 
-    p = add_command(    'create_svhn',      'Create dataset for SVHN.',
-                                            'create_svhn datasets/svhn ~/downloads/svhn')
+    p = add_command(    'create_svhn',      'Create dataset for SVHN.', 'create_svhn datasets/svhn ~/downloads/svhn')
     p.add_argument(     'tfrecord_dir',     help='New dataset directory to be created')
     p.add_argument(     'svhn_dir',         help='Directory containing SVHN')
 
@@ -640,6 +677,11 @@ def execute_cmdline(argv):
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    execute_cmdline(sys.argv)
-
+    #execute_cmdline(sys.argv)
+    rap_images_dir = '/media/ehsan/48BE4782BE476810/AA_GITHUP/Anchor_Level_Paper/RAP_images'
+    #celeba_images_dir = "/media/ehsan/HDD2TB/Celeba_dataset_/img_align_celeba"
+    create_RAP (tfrecord_dir="./results/RAP_TFRecord" , RAP_dir=rap_images_dir )
+    #create_celeba(tfrecord_dir="./results/Celeba_TFRecord" , celeba_dir=celeba_images_dir)
+    # execute_cmdline(argv=[create_cifar10(tfrecord_dir="/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/cifar10-py/tfrecord_cifar10",
+    #                                      cifar10_dir="/media/ehsan/48BE4782BE476810/AA_GITHUP/StyleGAN/stylegan/results/cifar10-py/cifar10_dataset")])
 #----------------------------------------------------------------------------
